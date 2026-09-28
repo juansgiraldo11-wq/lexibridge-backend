@@ -5,11 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LexiBridge</title>
 
-  <!-- 1. Enlace para el LOGO / Favicon de la pestaña -->
-  <link rel="icon" type="image/png" href="/logo.png" />
+  <!-- Logo / Favicon de la aplicación -->
+  <link rel="icon" type="image/png" href="/icon.png" />
 
-  <!-- 2. Enlace para los ESTILOS de la página -->
-  <link rel="stylesheet" href="/style.css" />
+  <!-- Estilos visuales a través de Tailwind CDN (asegura el diseño si no usas un CSS local) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Si usas tu propio archivo CSS en public/style.css, desasocia la barra inicial o mantenla según la carpeta -->
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
 <header><div class="brand"><b>L</b><span><strong>LexiBridge</strong><small>English Vocabulary & Dictionary</small></span></div><span id="status">Ready</span></header>
