@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LexiBridge</string>
+    <string name="title_activity_main">LexiBridge</string>
+    <string name="package_name">com.lexibridge.app</string>
+    <string name="custom_url_scheme">com.lexibridge.app</string>
+</resources>

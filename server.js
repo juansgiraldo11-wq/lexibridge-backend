@@ -8,12 +8,21 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-// Habilitar CORS para permitir solicitudes externas (ej. App móvil o Render)
+// Habilitar CORS para permitir solicitudes externas
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-const MODEL_NAME = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+// Caché en memoria para evitar llamadas repetidas a la API
+const searchCache = new Map();
+
+// Modelos a probar en orden de preferencia
+const MODELS = [
+  process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  "gemini-2.5-flash",
+  "gemini-1.5-flash"
+];
+
 const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
 
 const taxonomy = `
@@ -206,36 +215,41 @@ ${JSON.stringify(evidence, null, 2)}
 
 Return only valid JSON matching the schema.`;
 
-  const maxRetries = 3;
+  const maxRetriesPerModel = 3;
   let lastError = null;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`Analyzing "${word}" with ${MODEL_NAME} (Attempt ${attempt}/${maxRetries})...`);
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema
-        }
-      });
+  // Recorrer los modelos en orden
+  for (const modelName of MODELS) {
+    // Probar 3 veces por cada modelo antes de cambiar al siguiente
+    for (let attempt = 1; attempt <= maxRetriesPerModel; attempt++) {
+      try {
+        console.log(`Analyzing "${word}" with ${modelName} (Attempt ${attempt}/${maxRetriesPerModel})...`);
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema
+          }
+        });
 
-      if (response.text) {
-        return JSON.parse(response.text);
-      }
-    } catch (err) {
-      lastError = err;
-      console.warn(`Attempt ${attempt} failed (${err.status || err.message}).`);
-      
-      if (attempt < maxRetries) {
-        console.log("Waiting 1.5s before retrying...");
-        await delay(1500);
+        if (response.text) {
+          return JSON.parse(response.text);
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`Attempt ${attempt} on ${modelName} failed (${err.status || err.message}).`);
+
+        if (attempt < maxRetriesPerModel) {
+          console.log("Waiting 1.5s before retrying same model...");
+          await delay(1500);
+        }
       }
     }
+    console.warn(`All ${maxRetriesPerModel} attempts for ${modelName} failed. Trying next model...`);
   }
 
-  throw lastError || new Error("Failed to reach Gemini API after retries.");
+  throw lastError || new Error("Failed to reach Gemini API after retrying all fallback models.");
 }
 
 app.get("/api/search", async (req, res) => {
@@ -243,6 +257,12 @@ app.get("/api/search", async (req, res) => {
     const word = String(req.query.word || "").trim().toLowerCase();
     if (!word) return res.status(400).json({ error: "Enter a word." });
     if (word.length > 80) return res.status(400).json({ error: "The search is too long." });
+
+    // 1. Verificar si la respuesta está guardada en el caché
+    if (searchCache.has(word)) {
+      console.log(`[Cache Hit] Serving '${word}' from local cache.`);
+      return res.json(searchCache.get(word));
+    }
 
     const evidence = await dictionary(word);
     const data = await analyze(word, evidence);
@@ -252,6 +272,10 @@ app.get("/api/search", async (req, res) => {
       { name: "WordReference", url: "https://www.wordreference.com/definition/" + encodeURIComponent(word), role: "Manual cross-check link." }
     ];
     data.evidence = evidence;
+
+    // 2. Guardar en caché antes de responder
+    searchCache.set(word, data);
+
     res.json(data);
   } catch (e) {
     console.error("SERVER ERROR:", e);
