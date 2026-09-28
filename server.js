@@ -16,11 +16,11 @@ app.use(express.static("public"));
 // Caché en memoria para evitar llamadas repetidas a la API
 const searchCache = new Map();
 
-// Modelos a probar en orden de preferencia
+// Modelos actualizados y compatibles con la API v1beta
 const MODELS = [
   process.env.GEMINI_MODEL || "gemini-3.8-flash",
   "gemini-2.5-flash",
-  "gemini-1.5-flash"
+  "gemini-1.5-flash-latest"
 ];
 
 const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
@@ -218,9 +218,7 @@ Return only valid JSON matching the schema.`;
   const maxRetriesPerModel = 3;
   let lastError = null;
 
-  // Recorrer los modelos en orden
   for (const modelName of MODELS) {
-    // Probar 3 veces por cada modelo antes de cambiar al siguiente
     for (let attempt = 1; attempt <= maxRetriesPerModel; attempt++) {
       try {
         console.log(`Analyzing "${word}" with ${modelName} (Attempt ${attempt}/${maxRetriesPerModel})...`);
@@ -240,13 +238,19 @@ Return only valid JSON matching the schema.`;
         lastError = err;
         console.warn(`Attempt ${attempt} on ${modelName} failed (${err.status || err.message}).`);
 
+        // Si el modelo da un error de no encontrado (404), saltar al siguiente modelo inmediatamente
+        if (err.status === 404 || String(err.message).includes("NOT_FOUND")) {
+          console.warn(`Model ${modelName} not found or unsupported. Skipping remaining retries for this model.`);
+          break;
+        }
+
         if (attempt < maxRetriesPerModel) {
           console.log("Waiting 1.5s before retrying same model...");
           await delay(1500);
         }
       }
     }
-    console.warn(`All ${maxRetriesPerModel} attempts for ${modelName} failed. Trying next model...`);
+    console.warn(`Switching to next fallback model...`);
   }
 
   throw lastError || new Error("Failed to reach Gemini API after retrying all fallback models.");
