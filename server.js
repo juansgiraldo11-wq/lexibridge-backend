@@ -16,11 +16,10 @@ app.use(express.static("public"));
 // Caché en memoria para evitar llamadas repetidas a la API
 const searchCache = new Map();
 
-// Modelos actualizados y compatibles con la API v1beta
+// Modelos oficialmente soportados en la versión v1beta de la API
 const MODELS = [
   process.env.GEMINI_MODEL || "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-1.5-flash-latest"
+  "gemini-3.5-flash-lite"
 ];
 
 const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
@@ -231,29 +230,30 @@ Return only valid JSON matching the schema.`;
           }
         });
 
-        if (response.text) {
+        if (response && response.text) {
           return JSON.parse(response.text);
         }
       } catch (err) {
         lastError = err;
-        console.warn(`Attempt ${attempt} on ${modelName} failed (${err.status || err.message}).`);
+        const errStr = String(err.message || err);
+        const status = err.status || (err.error && err.error.code);
 
-        // Si el modelo da un error de no encontrado (404), saltar al siguiente modelo inmediatamente
-        if (err.status === 404 || String(err.message).includes("NOT_FOUND")) {
-          console.warn(`Model ${modelName} not found or unsupported. Skipping remaining retries for this model.`);
-          break;
+        console.warn(`Attempt ${attempt} on ${modelName} failed: ${errStr}`);
+
+        // Si el modelo no existe o no es soportado (404 / NOT_FOUND), salta inmediatamente de modelo
+        if (status === 404 || errStr.includes("NOT_FOUND") || errStr.includes("is not found")) {
+          console.warn(`Model ${modelName} is not available on this API version. Switching to next model...`);
+          break; // Rompe el bucle interno de reintentos y pasa al siguiente modelo
         }
 
         if (attempt < maxRetriesPerModel) {
-          console.log("Waiting 1.5s before retrying same model...");
           await delay(1500);
         }
       }
     }
-    console.warn(`Switching to next fallback model...`);
   }
 
-  throw lastError || new Error("Failed to reach Gemini API after retrying all fallback models.");
+  throw lastError || new Error("Failed to reach Gemini API after retrying available models.");
 }
 
 app.get("/api/search", async (req, res) => {
